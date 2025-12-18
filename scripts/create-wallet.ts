@@ -1,16 +1,65 @@
 #!/usr/bin/env npx ts-node
 /**
- * Solana Wallet Generator for Hummingbot Gateway
+ * ============================================================================
+ * SOLANA WALLET GENERATOR FOR HUMMINGBOT GATEWAY
+ * ============================================================================
  *
- * Generates a new Solana keypair locally and optionally adds it to Gateway.
- * The private key is generated on your machine and never sent to any server
- * until you explicitly choose to add it to Gateway.
+ * This script generates Solana keypairs LOCALLY on your machine for use with
+ * Hummingbot Gateway. Private keys are never sent to any server until you
+ * explicitly choose to add them to Gateway.
  *
- * Usage:
- *   npx ts-node scripts/create-wallet.ts
- *   npx ts-node scripts/create-wallet.ts --gateway http://localhost:15888
- *   npx ts-node scripts/create-wallet.ts --no-add  # Generate only, don't add to Gateway
- *   npx ts-node scripts/create-wallet.ts --verify  # Verify a private key is valid
+ * ============================================================================
+ * COMMANDS
+ * ============================================================================
+ *
+ * CREATE A NEW WALLET (interactive):
+ *   pnpm wallet:create
+ *
+ *   This will:
+ *   1. Generate a new Solana keypair locally
+ *   2. Display the address and private key
+ *   3. Prompt you to save your private key (THIS IS THE ONLY TIME IT'S SHOWN)
+ *   4. Ask if you want to add the wallet to Gateway
+ *
+ * CREATE WITHOUT ADDING TO GATEWAY:
+ *   pnpm wallet:create -- --no-add
+ *
+ *   Use this to generate and save your key before adding to Gateway.
+ *   You can add it later using the /wallet/add API.
+ *
+ * VERIFY A SAVED PRIVATE KEY:
+ *   pnpm wallet:create -- --verify
+ *
+ *   Use this to:
+ *   - Confirm your saved private key is valid
+ *   - See the wallet address derived from the key
+ *   - Verify you saved the key correctly before funding the wallet
+ *
+ * SPECIFY CUSTOM GATEWAY URL:
+ *   pnpm wallet:create -- --gateway http://localhost:15888
+ *
+ * ============================================================================
+ * SECURITY NOTES
+ * ============================================================================
+ *
+ * - Private keys are generated using @solana/web3.js (cryptographically secure)
+ * - Keys are generated locally - nothing is sent over the network during creation
+ * - The private key is displayed ONLY ONCE - if you lose it, funds are lost forever
+ * - Store your private key in a secure password manager
+ * - Never share your private key with anyone
+ * - Never store private keys in plain text files
+ *
+ * ============================================================================
+ * ADDING WALLET TO GATEWAY MANUALLY
+ * ============================================================================
+ *
+ * If you chose not to add the wallet during creation, you can add it later:
+ *
+ *   curl -X POST http://localhost:15888/wallet/add \
+ *     -H "Content-Type: application/json" \
+ *     -d '{"chain": "solana", "privateKey": "<your-key>", "setDefault": true}'
+ *
+ * ============================================================================
  */
 
 import { Keypair } from '@solana/web3.js';
@@ -96,49 +145,9 @@ async function verifyPrivateKey(): Promise<void> {
       console.log('\n' + '='.repeat(60));
       console.log('  VALID PRIVATE KEY');
       console.log('='.repeat(60));
-      console.log(`\n  Derived Address: ${address}\n`);
-
-      // Ask if they want to verify against an expected address
-      const checkAddress = await prompt(rl, 'Verify against an expected address? (yes/no): ');
-
-      if (checkAddress.toLowerCase() === 'yes') {
-        const expectedAddress = await prompt(rl, 'Enter expected address: ');
-
-        if (expectedAddress === address) {
-          console.log('\n' + '='.repeat(60));
-          console.log('  ADDRESS MATCH CONFIRMED');
-          console.log('='.repeat(60) + '\n');
-        } else {
-          console.log('\n' + '!'.repeat(60));
-          console.log('  ADDRESS MISMATCH');
-          console.log('!'.repeat(60));
-          console.log(`\n  Expected: ${expectedAddress}`);
-          console.log(`  Derived:  ${address}\n`);
-          process.exit(1);
-        }
-      }
-
-      // Ask if they want to add to Gateway
-      const addToGateway = await prompt(rl, `\nAdd this wallet to Gateway at ${GATEWAY_URL}? (yes/no): `);
-
-      if (addToGateway.toLowerCase() === 'yes') {
-        const setDefault = await prompt(rl, 'Set as default Solana wallet? (yes/no): ');
-
-        console.log('\nAdding wallet to Gateway...');
-
-        try {
-          const result = await addWalletToGateway(privateKeyInput, setDefault.toLowerCase() === 'yes');
-          console.log('\n' + '='.repeat(60));
-          console.log('  SUCCESS! Wallet added to Gateway');
-          console.log('='.repeat(60));
-          console.log(`  Address: ${result.address}`);
-          console.log(`  Default: ${setDefault.toLowerCase() === 'yes' ? 'Yes' : 'No'}`);
-          console.log('='.repeat(60) + '\n');
-        } catch (error: any) {
-          console.error('\nFailed to add wallet to Gateway:', error.message);
-          process.exit(1);
-        }
-      }
+      console.log(`\n  Derived Address: ${address}`);
+      console.log('\n  Your private key is valid and can be used with Gateway.');
+      console.log('='.repeat(60) + '\n');
     } catch (error: any) {
       console.log('\n' + '!'.repeat(60));
       console.log('  INVALID PRIVATE KEY');
@@ -201,7 +210,6 @@ async function main() {
     console.log(`  curl -X POST ${GATEWAY_URL}/wallet/add \\`);
     console.log(`    -H "Content-Type: application/json" \\`);
     console.log(`    -d '{"chain": "solana", "privateKey": "<your-private-key>", "setDefault": true}'`);
-    console.log('\nOr use: pnpm wallet:create -- --verify');
     process.exit(0);
   }
 
@@ -222,7 +230,7 @@ async function main() {
 
     if (addToGateway.toLowerCase() !== 'yes') {
       console.log('\nWallet NOT added to Gateway.');
-      console.log('To add it later, use: pnpm wallet:create -- --verify');
+      console.log('To add it later, use the /wallet/add API endpoint.');
       process.exit(0);
     }
 
