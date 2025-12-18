@@ -261,11 +261,11 @@ export class Solana {
       // Read the wallet file using the safe path
       const encryptedPrivateKey: string = await fse.readFile(safeWalletPath, 'utf8');
 
-      const passphrase = ConfigManagerCertPassphrase.readPassphrase();
-      if (!passphrase) {
-        throw new Error('missing passphrase');
+      const walletKey = ConfigManagerCertPassphrase.readWalletKey();
+      if (!walletKey) {
+        throw new Error('missing wallet encryption key');
       }
-      const decrypted = await this.decrypt(encryptedPrivateKey, passphrase);
+      const decrypted = await this.decrypt(encryptedPrivateKey, walletKey);
 
       return Keypair.fromSecretKey(new Uint8Array(bs58.decode(decrypted)));
     } catch (error) {

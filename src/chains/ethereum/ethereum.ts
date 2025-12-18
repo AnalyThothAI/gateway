@@ -545,11 +545,11 @@ export class Ethereum {
       const path = `${walletPath}/ethereum`;
       const encryptedPrivateKey = await fse.readFile(`${path}/${validatedAddress}.json`, 'utf8');
 
-      const passphrase = ConfigManagerCertPassphrase.readPassphrase();
-      if (!passphrase) {
-        throw new Error('Missing passphrase');
+      const walletKey = ConfigManagerCertPassphrase.readWalletKey();
+      if (!walletKey) {
+        throw new Error('Missing wallet encryption key');
       }
-      return await this.decrypt(encryptedPrivateKey, passphrase);
+      return await this.decrypt(encryptedPrivateKey, walletKey);
     } catch (error) {
       if (error.message.includes('Invalid Ethereum address')) {
         throw error; // Re-throw validation errors

@@ -74,9 +74,9 @@ export async function mkdirIfDoesNotExist(path: string): Promise<void> {
 }
 
 export async function addWallet(fastify: FastifyInstance, req: AddWalletRequest): Promise<AddWalletResponse> {
-  const passphrase = ConfigManagerCertPassphrase.readPassphrase();
-  if (!passphrase) {
-    throw fastify.httpErrors.internalServerError('No passphrase configured');
+  const walletKey = ConfigManagerCertPassphrase.readWalletKey();
+  if (!walletKey) {
+    throw fastify.httpErrors.internalServerError('No wallet encryption key configured');
   }
 
   // Validate chain name
@@ -105,12 +105,12 @@ export async function addWallet(fastify: FastifyInstance, req: AddWalletRequest)
       address = connection.getWalletFromPrivateKey(req.privateKey).address;
       // Further validate Ethereum address
       address = Ethereum.validateAddress(address);
-      encryptedPrivateKey = await connection.encrypt(req.privateKey, passphrase);
+      encryptedPrivateKey = await connection.encrypt(req.privateKey, walletKey);
     } else if (connection instanceof Solana) {
       address = connection.getKeypairFromPrivateKey(req.privateKey).publicKey.toBase58();
       // Further validate Solana address
       address = Solana.validateAddress(address);
-      encryptedPrivateKey = await connection.encrypt(req.privateKey, passphrase);
+      encryptedPrivateKey = await connection.encrypt(req.privateKey, walletKey);
     }
 
     if (address === undefined || encryptedPrivateKey === undefined) {
