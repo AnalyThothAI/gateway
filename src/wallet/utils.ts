@@ -1,8 +1,10 @@
 import {
   getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountInstruction,
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -449,6 +451,7 @@ export async function showPrivateKey(
   }
 
   if (req.passphrase !== configuredPassphrase) {
+    logger.warn(`Invalid passphrase provided for show-private-key request on ${req.chain}`);
     throw fastify.httpErrors.unauthorized('Invalid passphrase');
   }
 
@@ -600,6 +603,22 @@ async function sendSolanaTransaction(
 
     const fromTokenAccount = getAssociatedTokenAddressSync(mintPubkey, wallet.publicKey, false, programId);
     const toTokenAccount = getAssociatedTokenAddressSync(mintPubkey, toPubkey, false, programId);
+
+    // Check if recipient's ATA exists, create it if not
+    const toTokenAccountInfo = await solana.connection.getAccountInfo(toTokenAccount);
+    if (!toTokenAccountInfo) {
+      logger.info(`Creating ATA for recipient ${toAddress} for token ${tokenInfo.symbol}`);
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          wallet.publicKey, // payer
+          toTokenAccount, // associatedToken
+          toPubkey, // owner
+          mintPubkey, // mint
+          programId, // programId
+          ASSOCIATED_TOKEN_PROGRAM_ID, // associatedTokenProgramId
+        ),
+      );
+    }
 
     const tokenAmount = Math.floor(amount * Math.pow(10, tokenInfo.decimals));
 
