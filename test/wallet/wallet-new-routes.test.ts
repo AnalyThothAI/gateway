@@ -7,9 +7,7 @@ import * as fse from 'fs-extra';
 
 import { gatewayApp } from '../../src/app';
 import { Ethereum } from '../../src/chains/ethereum/ethereum';
-import { getEthereumChainConfig } from '../../src/chains/ethereum/ethereum.config';
 import { Solana } from '../../src/chains/solana/solana';
-import { getDefaultSolanaWallet } from '../../src/chains/solana/solana.utils';
 import { ConfigManagerCertPassphrase } from '../../src/services/config-manager-cert-passphrase';
 import { patch, unpatch } from '../services/patch';
 
@@ -22,15 +20,13 @@ let ethereumMainnet: Ethereum;
 // Test passphrase
 const TEST_PASSPHRASE = 'test-passphrase';
 
-// Get default wallets from config for testing
-const testSolanaAddress = getDefaultSolanaWallet();
-const testEthAddress = getEthereumChainConfig().defaultWallet;
-
-// Generate test Solana keypair for encryption mocks
+// Generate test Solana keypair - use this for both address and encryption mocks
 const testSolanaKeypair = Keypair.generate();
+const testSolanaAddress = testSolanaKeypair.publicKey.toString();
 const testSolanaPrivateKey = bs58.encode(testSolanaKeypair.secretKey);
 
-// Test Ethereum private key (mock)
+// Test Ethereum wallet data (fixed test address)
+const testEthAddress = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf';
 const testEthPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001';
 
 // Mock encrypted wallet data
