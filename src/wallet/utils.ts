@@ -1,4 +1,9 @@
-import { getAssociatedTokenAddressSync, createTransferInstruction, TOKEN_PROGRAM_ID, getMint } from '@solana/spl-token';
+import {
+  getAssociatedTokenAddressSync,
+  createTransferInstruction,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+} from '@solana/spl-token';
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { BigNumber, Wallet, utils } from 'ethers';
@@ -577,20 +582,29 @@ async function sendSolanaTransaction(
     );
     tokenSymbol = 'SOL';
   } else {
-    // SPL token transfer
+    // SPL/Token2022 token transfer
     const tokenInfo = await solana.getToken(req.token);
     if (!tokenInfo) {
       throw fastify.httpErrors.badRequest(`Token not found: ${req.token}`);
     }
 
     const mintPubkey = new PublicKey(tokenInfo.address);
-    const fromTokenAccount = getAssociatedTokenAddressSync(mintPubkey, wallet.publicKey);
-    const toTokenAccount = getAssociatedTokenAddressSync(mintPubkey, toPubkey);
+
+    // Detect if this is a Token2022 token by checking the mint account owner
+    const mintAccountInfo = await solana.connection.getAccountInfo(mintPubkey);
+    if (!mintAccountInfo) {
+      throw fastify.httpErrors.badRequest(`Token mint not found on-chain: ${tokenInfo.address}`);
+    }
+
+    const programId = mintAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+    const fromTokenAccount = getAssociatedTokenAddressSync(mintPubkey, wallet.publicKey, false, programId);
+    const toTokenAccount = getAssociatedTokenAddressSync(mintPubkey, toPubkey, false, programId);
 
     const tokenAmount = Math.floor(amount * Math.pow(10, tokenInfo.decimals));
 
     transaction.add(
-      createTransferInstruction(fromTokenAccount, toTokenAccount, wallet.publicKey, tokenAmount, [], TOKEN_PROGRAM_ID),
+      createTransferInstruction(fromTokenAccount, toTokenAccount, wallet.publicKey, tokenAmount, [], programId),
     );
     tokenSymbol = tokenInfo.symbol;
   }
