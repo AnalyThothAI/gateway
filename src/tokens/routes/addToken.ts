@@ -31,7 +31,6 @@ export const addTokenRoute: FastifyPluginAsync = async (fastify) => {
 
         return {
           message: `Token ${token.symbol} added/updated successfully in ${chain}/${network}.`,
-          requiresRestart: false,
         };
       } catch (error) {
         handleTokenError(fastify, error, 'Failed to add token');
