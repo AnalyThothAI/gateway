@@ -168,8 +168,8 @@ describe('Token Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body).toEqual({
-        message: 'Token TEST added/updated successfully in ethereum/mainnet. Gateway restart required.',
-        requiresRestart: true,
+        message: 'Token TEST added/updated successfully in ethereum/mainnet.',
+        requiresRestart: false,
       });
     });
 
@@ -215,8 +215,8 @@ describe('Token Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body).toEqual({
-        message: 'Token TEST added/updated successfully in ethereum/mainnet. Gateway restart required.',
-        requiresRestart: true,
+        message: 'Token TEST added/updated successfully in ethereum/mainnet.',
+        requiresRestart: false,
       });
     });
   });
