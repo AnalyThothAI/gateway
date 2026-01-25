@@ -1,7 +1,7 @@
 import { Contract } from '@ethersproject/contracts';
 import { CurrencyAmount, Percent } from '@uniswap/sdk-core';
 import { Position, NonfungiblePositionManager, MintOptions, nearestUsableTick } from '@uniswap/v3-sdk';
-import { BigNumber } from 'ethers';
+import { BigNumber, utils } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
 import JSBI from 'jsbi';
 
@@ -104,7 +104,8 @@ export async function openPosition(
   let token1Amount = CurrencyAmount.fromRawAmount(token1, 0);
 
   if (baseTokenAmount !== undefined) {
-    const baseAmountRaw = Math.floor(baseTokenAmount * Math.pow(10, baseTokenObj.decimals));
+    // Use parseUnits to avoid scientific notation issues with large numbers
+    const baseAmountRaw = utils.parseUnits(baseTokenAmount.toString(), baseTokenObj.decimals);
     if (isBaseToken0) {
       token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(baseAmountRaw.toString()));
     } else {
@@ -113,7 +114,8 @@ export async function openPosition(
   }
 
   if (quoteTokenAmount !== undefined) {
-    const quoteAmountRaw = Math.floor(quoteTokenAmount * Math.pow(10, quoteTokenObj.decimals));
+    // Use parseUnits to avoid scientific notation issues with large numbers
+    const quoteAmountRaw = utils.parseUnits(quoteTokenAmount.toString(), quoteTokenObj.decimals);
     if (isBaseToken0) {
       token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(quoteAmountRaw.toString()));
     } else {

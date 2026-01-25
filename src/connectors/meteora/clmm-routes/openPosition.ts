@@ -201,8 +201,8 @@ export async function openPosition(
         fee: txFee,
         positionAddress: newImbalancePosition.publicKey.toBase58(),
         positionRent: sentSOL,
-        baseTokenAmountAdded: baseTokenBalanceChange,
-        quoteTokenAmountAdded: quoteTokenBalanceChange,
+        baseTokenAmountAdded: Math.abs(baseTokenBalanceChange),
+        quoteTokenAmountAdded: Math.abs(quoteTokenBalanceChange),
       },
     };
   } else {

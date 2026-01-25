@@ -2,7 +2,7 @@ import { Contract } from '@ethersproject/contracts';
 import { Static } from '@sinclair/typebox';
 import { CurrencyAmount, Percent } from '@uniswap/sdk-core';
 import { Position, NonfungiblePositionManager } from '@uniswap/v3-sdk';
-import { BigNumber } from 'ethers';
+import { BigNumber, utils } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
 import JSBI from 'jsbi';
 
@@ -62,7 +62,9 @@ export async function addLiquidity(
   let token1Amount = CurrencyAmount.fromRawAmount(token1, 0);
 
   if (baseTokenAmount !== undefined) {
-    const baseAmountRaw = Math.floor(baseTokenAmount * Math.pow(10, isBaseToken0 ? token0.decimals : token1.decimals));
+    // Use parseUnits to avoid scientific notation issues with large numbers
+    const baseDecimals = isBaseToken0 ? token0.decimals : token1.decimals;
+    const baseAmountRaw = utils.parseUnits(baseTokenAmount.toString(), baseDecimals);
     if (isBaseToken0) {
       token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(baseAmountRaw.toString()));
     } else {
@@ -71,9 +73,9 @@ export async function addLiquidity(
   }
 
   if (quoteTokenAmount !== undefined) {
-    const quoteAmountRaw = Math.floor(
-      quoteTokenAmount * Math.pow(10, isBaseToken0 ? token1.decimals : token0.decimals),
-    );
+    // Use parseUnits to avoid scientific notation issues with large numbers
+    const quoteDecimals = isBaseToken0 ? token1.decimals : token0.decimals;
+    const quoteAmountRaw = utils.parseUnits(quoteTokenAmount.toString(), quoteDecimals);
     if (isBaseToken0) {
       token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(quoteAmountRaw.toString()));
     } else {

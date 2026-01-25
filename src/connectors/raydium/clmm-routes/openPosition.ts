@@ -130,8 +130,8 @@ export async function openPosition(
         fee: totalFee / 1e9,
         positionAddress: extInfo.nftMint.toBase58(),
         positionRent: rent,
-        baseTokenAmountAdded: baseTokenChange,
-        quoteTokenAmountAdded: quoteTokenChange,
+        baseTokenAmountAdded: Math.abs(baseTokenChange),
+        quoteTokenAmountAdded: Math.abs(quoteTokenChange),
       },
     };
   } else {
