@@ -13,6 +13,8 @@ import { logger } from '../../../services/logger';
 import { Meteora } from '../meteora';
 import { MeteoraClmmClosePositionRequest } from '../schemas';
 
+const SOL_NATIVE_MINT = 'So11111111111111111111111111111111111111112';
+
 export async function closePosition(
   network: string,
   walletAddress: string,
@@ -42,6 +44,13 @@ export async function closePosition(
     const baseFeeAmount = positionInfo.baseFeeAmount;
     const quoteFeeAmount = positionInfo.quoteFeeAmount;
 
+    const positionAccountInfo = await solana.connection.getAccountInfo(position.publicKey);
+    const positionRentLamports = positionAccountInfo?.lamports ?? 0;
+    const positionRentRefunded = positionRentLamports / 1e9;
+    if (!positionAccountInfo) {
+      logger.warn(`Position account not found before close: ${positionAddress}`);
+    }
+
     logger.info(`Closing position ${positionAddress} (removing 100% liquidity, collecting fees, and closing)`);
 
     // Use SDK's shouldClaimAndClose to remove liquidity, collect fees, and close position in one call
@@ -63,6 +72,7 @@ export async function closePosition(
     const transactions = Array.isArray(removeLiquidityTxs) ? removeLiquidityTxs : [removeLiquidityTxs];
 
     let totalFee = 0;
+    let lastTxFee = 0;
     let lastSignature = '';
 
     for (let i = 0; i < transactions.length; i++) {
@@ -82,6 +92,7 @@ export async function closePosition(
       // Send and confirm transaction
       const result = await solana.sendAndConfirmTransaction(tx, [wallet]);
       totalFee += result.fee;
+      lastTxFee = result.fee;
       lastSignature = result.signature;
     }
 
@@ -102,20 +113,33 @@ export async function closePosition(
       const { balanceChanges } = await solana.extractBalanceChangesAndFee(signature, wallet.publicKey.toBase58(), [
         dlmmPool.tokenX.publicKey.toBase58(),
         dlmmPool.tokenY.publicKey.toBase58(),
-        'So11111111111111111111111111111111111111112', // SOL (for rent refund)
       ]);
 
       const totalTokenXReceived = Math.abs(balanceChanges[0]);
       const totalTokenYReceived = Math.abs(balanceChanges[1]);
-      const returnedSOL = Math.abs(balanceChanges[2]);
 
       // Separate fees from liquidity amounts
       // Total received = liquidity removed + fees collected
-      const baseTokenAmountRemoved = Math.max(0, totalTokenXReceived - baseFeeAmount);
-      const quoteTokenAmountRemoved = Math.max(0, totalTokenYReceived - quoteFeeAmount);
+      const txFeeSol = lastTxFee;
+      const isBaseSol = dlmmPool.tokenX.publicKey.toBase58() === SOL_NATIVE_MINT;
+      const isQuoteSol = dlmmPool.tokenY.publicKey.toBase58() === SOL_NATIVE_MINT;
+      let baseTokenAmountRemoved = Math.max(0, totalTokenXReceived - baseFeeAmount);
+      let quoteTokenAmountRemoved = Math.max(0, totalTokenYReceived - quoteFeeAmount);
+      if (isBaseSol) {
+        baseTokenAmountRemoved = Math.max(
+          0,
+          totalTokenXReceived - baseFeeAmount - positionRentRefunded + txFeeSol,
+        );
+      }
+      if (isQuoteSol) {
+        quoteTokenAmountRemoved = Math.max(
+          0,
+          totalTokenYReceived - quoteFeeAmount - positionRentRefunded + txFeeSol,
+        );
+      }
 
       logger.info(
-        `Position closed: ${baseTokenAmountRemoved.toFixed(4)} ${tokenXSymbol} + ${baseFeeAmount.toFixed(4)} ${tokenXSymbol} fees, ${quoteTokenAmountRemoved.toFixed(4)} ${tokenYSymbol} + ${quoteFeeAmount.toFixed(4)} ${tokenYSymbol} fees, ${returnedSOL.toFixed(9)} SOL rent refunded`,
+        `Position closed: ${baseTokenAmountRemoved.toFixed(4)} ${tokenXSymbol} + ${baseFeeAmount.toFixed(4)} ${tokenXSymbol} fees, ${quoteTokenAmountRemoved.toFixed(4)} ${tokenYSymbol} + ${quoteFeeAmount.toFixed(4)} ${tokenYSymbol} fees, ${positionRentRefunded.toFixed(9)} SOL rent refunded`,
       );
 
       return {
@@ -123,7 +147,7 @@ export async function closePosition(
         status: 1, // CONFIRMED
         data: {
           fee: totalFee,
-          positionRentRefunded: returnedSOL,
+          positionRentRefunded,
           baseTokenAmountRemoved,
           quoteTokenAmountRemoved,
           baseFeeAmountCollected: baseFeeAmount,

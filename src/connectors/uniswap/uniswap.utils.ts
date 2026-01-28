@@ -228,37 +228,48 @@ export async function getV2PoolInfo(poolAddress: string, network: string): Promi
  * @returns Pool information with base and quote token addresses
  */
 export async function getV3PoolInfo(poolAddress: string, network: string): Promise<UniswapPoolInfo | null> {
+  const ethereum = await Ethereum.getInstance(network);
+
+  let code: string;
   try {
-    const ethereum = await Ethereum.getInstance(network);
+    code = await ethereum.provider.getCode(poolAddress);
+  } catch (error) {
+    logger.error(`Error checking V3 pool code: ${error.message}`);
+    throw error;
+  }
+  if (!code || code === '0x') {
+    return null;
+  }
 
-    // V3 Pool contract ABI (minimal - just what we need)
-    const v3PoolABI = [
-      {
-        inputs: [],
-        name: 'token0',
-        outputs: [{ internalType: 'address', name: '', type: 'address' }],
-        stateMutability: 'view',
-        type: 'function',
-      },
-      {
-        inputs: [],
-        name: 'token1',
-        outputs: [{ internalType: 'address', name: '', type: 'address' }],
-        stateMutability: 'view',
-        type: 'function',
-      },
-      {
-        inputs: [],
-        name: 'fee',
-        outputs: [{ internalType: 'uint24', name: '', type: 'uint24' }],
-        stateMutability: 'view',
-        type: 'function',
-      },
-    ];
+  // V3 Pool contract ABI (minimal - just what we need)
+  const v3PoolABI = [
+    {
+      inputs: [],
+      name: 'token0',
+      outputs: [{ internalType: 'address', name: '', type: 'address' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+    {
+      inputs: [],
+      name: 'token1',
+      outputs: [{ internalType: 'address', name: '', type: 'address' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+    {
+      inputs: [],
+      name: 'fee',
+      outputs: [{ internalType: 'uint24', name: '', type: 'uint24' }],
+      stateMutability: 'view',
+      type: 'function',
+    },
+  ];
 
-    // Create pool contract
-    const poolContract = new Contract(poolAddress, v3PoolABI, ethereum.provider);
+  // Create pool contract
+  const poolContract = new Contract(poolAddress, v3PoolABI, ethereum.provider);
 
+  try {
     // Get token addresses
     const [token0Address, token1Address] = await Promise.all([poolContract.token0(), poolContract.token1()]);
 
@@ -270,7 +281,7 @@ export async function getV3PoolInfo(poolAddress: string, network: string): Promi
     };
   } catch (error) {
     logger.error(`Error getting V3 pool info: ${error.message}`);
-    return null;
+    throw error;
   }
 }
 

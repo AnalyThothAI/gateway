@@ -23,8 +23,7 @@ const INSUFFICIENT_BALANCE_MESSAGE = (token: string, required: string, actual: s
   `Insufficient balance for ${token}. Required: ${required}, Available: ${actual}`;
 const OPEN_POSITION_ERROR_MESSAGE = (error: any) => `Failed to open position: ${error.message || error}`;
 
-const SOL_POSITION_RENT = 0.05; // SOL amount required for position rent
-const SOL_TRANSACTION_BUFFER = 0.01; // Additional SOL buffer for transaction costs
+const SOL_NATIVE_MINT = 'So11111111111111111111111111111111111111112';
 
 export async function openPosition(
   network: string,
@@ -182,16 +181,27 @@ export async function openPosition(
     const baseTokenBalanceChange = balanceChanges[0];
     const quoteTokenBalanceChange = balanceChanges[1];
 
-    // Calculate sentSOL based on which token is SOL
-    const sentSOL =
-      tokenXSymbol === 'SOL'
-        ? Math.abs(baseTokenBalanceChange - txFee)
-        : tokenYSymbol === 'SOL'
-          ? Math.abs(quoteTokenBalanceChange - txFee)
-          : txFee;
+    const positionAccountInfo = await solana.connection.getAccountInfo(newImbalancePosition.publicKey);
+    const positionRentLamports = positionAccountInfo?.lamports ?? 0;
+    const positionRent = positionRentLamports / 1e9;
+    if (!positionAccountInfo) {
+      logger.warn(`Position account not found after open: ${newImbalancePosition.publicKey.toBase58()}`);
+    }
+
+    const txFeeSol = txFee;
+    const isBaseSol = dlmmPool.tokenX.publicKey.toBase58() === SOL_NATIVE_MINT;
+    const isQuoteSol = dlmmPool.tokenY.publicKey.toBase58() === SOL_NATIVE_MINT;
+    let baseTokenAmountAdded = Math.abs(baseTokenBalanceChange);
+    let quoteTokenAmountAdded = Math.abs(quoteTokenBalanceChange);
+    if (isBaseSol) {
+      baseTokenAmountAdded = Math.max(0, baseTokenAmountAdded - positionRent - txFeeSol);
+    }
+    if (isQuoteSol) {
+      quoteTokenAmountAdded = Math.max(0, quoteTokenAmountAdded - positionRent - txFeeSol);
+    }
 
     logger.info(
-      `Position opened at ${newImbalancePosition.publicKey.toBase58()}: ${Math.abs(baseTokenBalanceChange).toFixed(4)} ${tokenXSymbol}, ${Math.abs(quoteTokenBalanceChange).toFixed(4)} ${tokenYSymbol}`,
+      `Position opened at ${newImbalancePosition.publicKey.toBase58()}: ${baseTokenAmountAdded.toFixed(4)} ${tokenXSymbol}, ${quoteTokenAmountAdded.toFixed(4)} ${tokenYSymbol}, rent ${positionRent.toFixed(9)} SOL`,
     );
 
     return {
@@ -200,9 +210,9 @@ export async function openPosition(
       data: {
         fee: txFee,
         positionAddress: newImbalancePosition.publicKey.toBase58(),
-        positionRent: sentSOL,
-        baseTokenAmountAdded: Math.abs(baseTokenBalanceChange),
-        quoteTokenAmountAdded: Math.abs(quoteTokenBalanceChange),
+        positionRent,
+        baseTokenAmountAdded,
+        quoteTokenAmountAdded,
       },
     };
   } else {

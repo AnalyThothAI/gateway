@@ -38,6 +38,7 @@ export class Uniswap {
   // Common properties
   private chainId: number;
   private _ready: boolean = false;
+  private tokenCache: Map<string, Token> = new Map();
 
   // V2 (AMM) properties
   private v2Factory: Contract;
@@ -164,7 +165,51 @@ export class Uniswap {
    */
   public async getToken(symbolOrAddress: string): Promise<Token | null> {
     const tokenInfo = await this.ethereum.getToken(symbolOrAddress);
-    return tokenInfo ? this.getUniswapToken(tokenInfo) : null;
+    if (tokenInfo) {
+      const token = this.getUniswapToken(tokenInfo);
+      this.tokenCache.set(token.address.toLowerCase(), token);
+      return token;
+    }
+
+    let normalizedAddress: string | null = null;
+    try {
+      normalizedAddress = getAddress(symbolOrAddress);
+    } catch {
+      return null;
+    }
+
+    const cached = this.tokenCache.get(normalizedAddress.toLowerCase());
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const contract = this.ethereum.getContract(normalizedAddress);
+      const decimalsRaw = await contract.decimals();
+      const decimals = Number(decimalsRaw);
+      if (!Number.isFinite(decimals) || decimals < 0) {
+        return null;
+      }
+      let symbol = normalizedAddress;
+      let name = normalizedAddress;
+      try {
+        symbol = await contract.symbol();
+      } catch {
+        // Leave symbol as address fallback
+      }
+      try {
+        name = await contract.name();
+      } catch {
+        // Leave name as address fallback
+      }
+      const token = new Token(this.ethereum.chainId, normalizedAddress, decimals, symbol, name);
+      this.tokenCache.set(normalizedAddress.toLowerCase(), token);
+      logger.debug(`Resolved token via on-chain metadata: ${symbol} (${normalizedAddress})`);
+      return token;
+    } catch (error) {
+      logger.warn(`Failed to resolve token metadata for ${symbolOrAddress}: ${error.message}`);
+      return null;
+    }
   }
 
   /**
@@ -328,6 +373,11 @@ export class Uniswap {
         return null;
       }
 
+      const code = await this.ethereum.provider.getCode(poolAddr);
+      if (!code || code === '0x') {
+        return null;
+      }
+
       // Check if pool is valid
       const isValid = await isValidV3Pool(poolAddr);
       if (!isValid) {
@@ -372,7 +422,7 @@ export class Uniswap {
       );
     } catch (error) {
       logger.error(`Error getting V3 pool: ${error.message}`);
-      return null;
+      throw error;
     }
   }
 
