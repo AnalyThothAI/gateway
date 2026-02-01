@@ -21,7 +21,7 @@ import { httpErrors } from '../../../services/error-handler';
 import { logger } from '../../../services/logger';
 import { sanitizeErrorMessage } from '../../../services/sanitize';
 import { Uniswap } from '../uniswap';
-import { parseFeeTier, getUniswapPoolInfo } from '../uniswap.utils';
+import { parseFeeTier, getUniswapPoolInfo, toRawAmount } from '../uniswap.utils';
 
 // Constants for examples (Base WETH-USDC pool)
 const BASE_TOKEN_AMOUNT = 0.001;
@@ -224,12 +224,8 @@ export const quotePositionRoute: FastifyPluginAsync = async (fastify) => {
         if (baseTokenAmount !== undefined && quoteTokenAmount !== undefined) {
           console.log('DEBUG: Using fromAmounts (both amounts provided)');
           // Both amounts provided - use fromAmounts to calculate optimal position
-          const baseAmountRaw = JSBI.BigInt(
-            Math.floor(baseTokenAmount * Math.pow(10, baseTokenObj.decimals)).toString(),
-          );
-          const quoteAmountRaw = JSBI.BigInt(
-            Math.floor(quoteTokenAmount * Math.pow(10, quoteTokenObj.decimals)).toString(),
-          );
+          const baseAmountRaw = toRawAmount(baseTokenAmount, baseTokenObj.decimals);
+          const quoteAmountRaw = toRawAmount(quoteTokenAmount, quoteTokenObj.decimals);
 
           console.log('DEBUG: Raw amounts:');
           console.log('  - baseAmountRaw:', baseAmountRaw.toString());
@@ -271,9 +267,7 @@ export const quotePositionRoute: FastifyPluginAsync = async (fastify) => {
         } else if (baseTokenAmount !== undefined) {
           console.log('DEBUG: Using fromAmount (only base amount provided)');
           // Only base amount provided
-          const baseAmountRaw = JSBI.BigInt(
-            Math.floor(baseTokenAmount * Math.pow(10, baseTokenObj.decimals)).toString(),
-          );
+          const baseAmountRaw = toRawAmount(baseTokenAmount, baseTokenObj.decimals);
 
           console.log('DEBUG: baseAmountRaw:', baseAmountRaw.toString());
 
@@ -299,9 +293,7 @@ export const quotePositionRoute: FastifyPluginAsync = async (fastify) => {
         } else if (quoteTokenAmount !== undefined) {
           console.log('DEBUG: Using fromAmount (only quote amount provided)');
           // Only quote amount provided
-          const quoteAmountRaw = JSBI.BigInt(
-            Math.floor(quoteTokenAmount * Math.pow(10, quoteTokenObj.decimals)).toString(),
-          );
+          const quoteAmountRaw = toRawAmount(quoteTokenAmount, quoteTokenObj.decimals);
 
           console.log('DEBUG: quoteAmountRaw:', quoteAmountRaw.toString());
 
@@ -467,8 +459,8 @@ export async function quotePosition(
 
   if (baseTokenAmount !== undefined && quoteTokenAmount !== undefined) {
     // Both amounts provided - use fromAmounts to calculate optimal position
-    const baseAmountRaw = JSBI.BigInt(Math.floor(baseTokenAmount * Math.pow(10, baseTokenObj.decimals)).toString());
-    const quoteAmountRaw = JSBI.BigInt(Math.floor(quoteTokenAmount * Math.pow(10, quoteTokenObj.decimals)).toString());
+    const baseAmountRaw = toRawAmount(baseTokenAmount, baseTokenObj.decimals);
+    const quoteAmountRaw = toRawAmount(quoteTokenAmount, quoteTokenObj.decimals);
 
     // Create position from both amounts
     if (isBaseToken0) {
@@ -501,7 +493,7 @@ export async function quotePosition(
     baseLimited = baseRatio <= quoteRatio;
   } else if (baseTokenAmount !== undefined) {
     // Only base amount provided
-    const baseAmountRaw = JSBI.BigInt(Math.floor(baseTokenAmount * Math.pow(10, baseTokenObj.decimals)).toString());
+    const baseAmountRaw = toRawAmount(baseTokenAmount, baseTokenObj.decimals);
 
     if (isBaseToken0) {
       position = Position.fromAmount0({
@@ -522,7 +514,7 @@ export async function quotePosition(
     baseLimited = true;
   } else if (quoteTokenAmount !== undefined) {
     // Only quote amount provided
-    const quoteAmountRaw = JSBI.BigInt(Math.floor(quoteTokenAmount * Math.pow(10, quoteTokenObj.decimals)).toString());
+    const quoteAmountRaw = toRawAmount(quoteTokenAmount, quoteTokenObj.decimals);
 
     if (isBaseToken0) {
       position = Position.fromAmount1({

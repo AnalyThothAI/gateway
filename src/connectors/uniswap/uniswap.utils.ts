@@ -3,6 +3,7 @@ import { Token } from '@uniswap/sdk-core';
 import { Pair as V2Pair } from '@uniswap/v2-sdk';
 import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
 import { FeeAmount, Pool as V3Pool } from '@uniswap/v3-sdk';
+import { Decimal } from 'decimal.js';
 import { FastifyInstance } from 'fastify';
 import JSBI from 'jsbi';
 
@@ -108,6 +109,12 @@ export const formatTokenAmount = (amount: string | number, decimals: number): nu
     logger.error(`Error formatting token amount: ${error}`);
     return 0;
   }
+};
+
+export const toRawAmount = (amount: number, decimals: number): JSBI => {
+  const scaled = new Decimal(amount).mul(new Decimal(10).pow(decimals));
+  const raw = scaled.toFixed(0, Decimal.ROUND_FLOOR);
+  return JSBI.BigInt(raw);
 };
 
 /**

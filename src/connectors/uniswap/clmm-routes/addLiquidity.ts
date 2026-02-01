@@ -4,7 +4,6 @@ import { CurrencyAmount, Percent } from '@uniswap/sdk-core';
 import { Position, NonfungiblePositionManager } from '@uniswap/v3-sdk';
 import { BigNumber, utils } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
-import JSBI from 'jsbi';
 
 import { Ethereum } from '../../../chains/ethereum/ethereum';
 import { AddLiquidityResponseType, AddLiquidityResponse } from '../../../schemas/clmm-schema';
@@ -14,7 +13,7 @@ import { UniswapClmmAddLiquidityRequest } from '../schemas';
 import { Uniswap } from '../uniswap';
 import { UniswapConfig } from '../uniswap.config';
 import { getUniswapV3NftManagerAddress, POSITION_MANAGER_ABI } from '../uniswap.contracts';
-import { formatTokenAmount } from '../uniswap.utils';
+import { formatTokenAmount, toRawAmount } from '../uniswap.utils';
 
 // Default gas limit for CLMM add liquidity operations
 const CLMM_ADD_LIQUIDITY_GAS_LIMIT = 600000;
@@ -62,24 +61,20 @@ export async function addLiquidity(
   let token1Amount = CurrencyAmount.fromRawAmount(token1, 0);
 
   if (baseTokenAmount !== undefined) {
-    // Use parseUnits to avoid scientific notation issues with large numbers
-    const baseDecimals = isBaseToken0 ? token0.decimals : token1.decimals;
-    const baseAmountRaw = utils.parseUnits(baseTokenAmount.toString(), baseDecimals);
+    const baseAmountRaw = toRawAmount(baseTokenAmount, isBaseToken0 ? token0.decimals : token1.decimals);
     if (isBaseToken0) {
-      token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(baseAmountRaw.toString()));
+      token0Amount = CurrencyAmount.fromRawAmount(token0, baseAmountRaw);
     } else {
-      token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(baseAmountRaw.toString()));
+      token1Amount = CurrencyAmount.fromRawAmount(token1, baseAmountRaw);
     }
   }
 
   if (quoteTokenAmount !== undefined) {
-    // Use parseUnits to avoid scientific notation issues with large numbers
-    const quoteDecimals = isBaseToken0 ? token1.decimals : token0.decimals;
-    const quoteAmountRaw = utils.parseUnits(quoteTokenAmount.toString(), quoteDecimals);
+    const quoteAmountRaw = toRawAmount(quoteTokenAmount, isBaseToken0 ? token1.decimals : token0.decimals);
     if (isBaseToken0) {
-      token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(quoteAmountRaw.toString()));
+      token1Amount = CurrencyAmount.fromRawAmount(token1, quoteAmountRaw);
     } else {
-      token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(quoteAmountRaw.toString()));
+      token0Amount = CurrencyAmount.fromRawAmount(token0, quoteAmountRaw);
     }
   }
 

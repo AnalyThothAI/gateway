@@ -3,7 +3,6 @@ import { CurrencyAmount, Percent } from '@uniswap/sdk-core';
 import { Position, NonfungiblePositionManager, MintOptions, nearestUsableTick } from '@uniswap/v3-sdk';
 import { BigNumber, utils } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
-import JSBI from 'jsbi';
 
 // Default gas limit for CLMM open position operations
 const CLMM_OPEN_POSITION_GAS_LIMIT = 600000;
@@ -21,7 +20,7 @@ import { sanitizeErrorMessage } from '../../../services/sanitize';
 import { Uniswap } from '../uniswap';
 import { UniswapConfig } from '../uniswap.config';
 import { getUniswapV3NftManagerAddress } from '../uniswap.contracts';
-import { formatTokenAmount, getUniswapPoolInfo } from '../uniswap.utils';
+import { formatTokenAmount, getUniswapPoolInfo, toRawAmount } from '../uniswap.utils';
 
 export async function openPosition(
   network: string,
@@ -104,22 +103,20 @@ export async function openPosition(
   let token1Amount = CurrencyAmount.fromRawAmount(token1, 0);
 
   if (baseTokenAmount !== undefined) {
-    // Use parseUnits to avoid scientific notation issues with large numbers
-    const baseAmountRaw = utils.parseUnits(baseTokenAmount.toString(), baseTokenObj.decimals);
+    const baseAmountRaw = toRawAmount(baseTokenAmount, baseTokenObj.decimals);
     if (isBaseToken0) {
-      token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(baseAmountRaw.toString()));
+      token0Amount = CurrencyAmount.fromRawAmount(token0, baseAmountRaw);
     } else {
-      token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(baseAmountRaw.toString()));
+      token1Amount = CurrencyAmount.fromRawAmount(token1, baseAmountRaw);
     }
   }
 
   if (quoteTokenAmount !== undefined) {
-    // Use parseUnits to avoid scientific notation issues with large numbers
-    const quoteAmountRaw = utils.parseUnits(quoteTokenAmount.toString(), quoteTokenObj.decimals);
+    const quoteAmountRaw = toRawAmount(quoteTokenAmount, quoteTokenObj.decimals);
     if (isBaseToken0) {
-      token1Amount = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(quoteAmountRaw.toString()));
+      token1Amount = CurrencyAmount.fromRawAmount(token1, quoteAmountRaw);
     } else {
-      token0Amount = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(quoteAmountRaw.toString()));
+      token0Amount = CurrencyAmount.fromRawAmount(token0, quoteAmountRaw);
     }
   }
 
