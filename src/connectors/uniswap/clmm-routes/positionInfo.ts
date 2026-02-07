@@ -1,5 +1,6 @@
 import { Contract } from '@ethersproject/contracts';
 import { Token } from '@uniswap/sdk-core';
+import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
 import {
   Position,
   NonfungiblePositionManager,
@@ -7,7 +8,6 @@ import {
   computePoolAddress,
   FACTORY_ADDRESS,
 } from '@uniswap/v3-sdk';
-import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
 import { BigNumber } from 'ethers';
 import { FastifyPluginAsync, FastifyInstance } from 'fastify';
 
@@ -42,7 +42,16 @@ export async function getPositionInfo(
   const positionManager = new Contract(positionManagerAddress, POSITION_MANAGER_ABI, ethereum.provider);
 
   // Get position details by token ID
-  const positionDetails = await positionManager.positions(positionAddress);
+  let positionDetails: any;
+  try {
+    positionDetails = await positionManager.positions(positionAddress);
+  } catch (err: any) {
+    const message = String(err?.reason ?? err?.errorArgs?.[0] ?? err?.message ?? '');
+    if (message.toLowerCase().includes('invalid token id')) {
+      throw fastify.httpErrors.notFound('Position closed');
+    }
+    throw err;
+  }
 
   // Get the token addresses from the position
   const token0Address = positionDetails.token0;
@@ -89,7 +98,7 @@ export async function getPositionInfo(
       } catch (error) {
         lastError = error;
         if (i < attempts - 1) {
-          const delay = baseDelayMs * (2 ** i);
+          const delay = baseDelayMs * 2 ** i;
           await sleep(delay);
         }
       }
@@ -104,19 +113,14 @@ export async function getPositionInfo(
       feeGrowthOutside1X128: BigNumber;
     };
 
-    const [
-      feeGrowthGlobal0X128Raw,
-      feeGrowthGlobal1X128Raw,
-      slot0Raw,
-      lowerTickDataRaw,
-      upperTickDataRaw,
-    ] = await Promise.all([
-      withRetries(() => poolContract.feeGrowthGlobal0X128()),
-      withRetries(() => poolContract.feeGrowthGlobal1X128()),
-      withRetries(() => poolContract.slot0()),
-      withRetries(() => poolContract.ticks(tickLower)),
-      withRetries(() => poolContract.ticks(tickUpper)),
-    ]);
+    const [feeGrowthGlobal0X128Raw, feeGrowthGlobal1X128Raw, slot0Raw, lowerTickDataRaw, upperTickDataRaw] =
+      await Promise.all([
+        withRetries(() => poolContract.feeGrowthGlobal0X128()),
+        withRetries(() => poolContract.feeGrowthGlobal1X128()),
+        withRetries(() => poolContract.slot0()),
+        withRetries(() => poolContract.ticks(tickLower)),
+        withRetries(() => poolContract.ticks(tickUpper)),
+      ]);
 
     const feeGrowthGlobal0X128 = feeGrowthGlobal0X128Raw as BigNumber;
     const feeGrowthGlobal1X128 = feeGrowthGlobal1X128Raw as BigNumber;

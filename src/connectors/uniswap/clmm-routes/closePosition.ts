@@ -1,6 +1,7 @@
 import { Contract } from '@ethersproject/contracts';
 import { Percent, CurrencyAmount } from '@uniswap/sdk-core';
-import { NonfungiblePositionManager, Position } from '@uniswap/v3-sdk';
+import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
+import { NonfungiblePositionManager, Position, computePoolAddress } from '@uniswap/v3-sdk';
 import { BigNumber } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
 import JSBI from 'jsbi';
@@ -15,7 +16,7 @@ import {
 import { httpErrors } from '../../../services/error-handler';
 import { logger } from '../../../services/logger';
 import { Uniswap } from '../uniswap';
-import { POSITION_MANAGER_ABI, getUniswapV3NftManagerAddress } from '../uniswap.contracts';
+import { POSITION_MANAGER_ABI, getUniswapV3FactoryAddress, getUniswapV3NftManagerAddress } from '../uniswap.contracts';
 import { formatTokenAmount } from '../uniswap.utils';
 
 // Default gas limit for CLMM close position operations
@@ -58,7 +59,16 @@ export async function closePosition(
   const positionManager = new Contract(positionManagerAddress, POSITION_MANAGER_ABI, ethereum.provider);
 
   // Get position details
-  const position = await positionManager.positions(positionAddress);
+  let position: any;
+  try {
+    position = await positionManager.positions(positionAddress);
+  } catch (err: any) {
+    const message = String(err?.reason ?? err?.errorArgs?.[0] ?? err?.message ?? '');
+    if (message.toLowerCase().includes('invalid token id')) {
+      throw httpErrors.notFound('Position closed');
+    }
+    throw err;
+  }
 
   // Get tokens by address
   const token0 = await uniswap.getToken(position.token0);
@@ -69,6 +79,13 @@ export async function closePosition(
     token0.symbol === 'WETH' ||
     (token1.symbol !== 'WETH' && token0.address.toLowerCase() < token1.address.toLowerCase());
 
+  const normalizeTick = (value: any): number => {
+    if (BigNumber.isBigNumber(value)) {
+      return value.fromTwos(24).toNumber();
+    }
+    return Number(value);
+  };
+
   // Get current liquidity
   const currentLiquidity = position.liquidity;
 
@@ -77,9 +94,118 @@ export async function closePosition(
     throw httpErrors.badRequest('Position has already been closed or has no liquidity/fees to collect');
   }
 
-  // Get fees owned
-  const feeAmount0 = position.tokensOwed0;
-  const feeAmount1 = position.tokensOwed1;
+  // Get the actual pool address using computePoolAddress
+  const poolAddress = computePoolAddress({
+    factoryAddress: getUniswapV3FactoryAddress(network),
+    tokenA: token0,
+    tokenB: token1,
+    fee: position.fee,
+  });
+
+  // Get collected + uncollected fees (tokensOwed + feeGrowthInside delta)
+  const feeAmount0Raw = position.tokensOwed0;
+  const feeAmount1Raw = position.tokensOwed1;
+  const Q128 = BigNumber.from(2).pow(128);
+  let totalFee0 = feeAmount0Raw;
+  let totalFee1 = feeAmount1Raw;
+
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  const withRetries = async <T>(fn: () => Promise<T>, attempts = 3, baseDelayMs = 250): Promise<T> => {
+    let lastError: any;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (i < attempts - 1) {
+          const delay = baseDelayMs * 2 ** i;
+          await sleep(delay);
+        }
+      }
+    }
+    throw lastError;
+  };
+
+  try {
+    const poolContract = new Contract(poolAddress, IUniswapV3PoolABI, ethereum.provider);
+    type Slot0Result = { tick?: number } & { [index: number]: any };
+    type TickInfoResult = {
+      feeGrowthOutside0X128: BigNumber;
+      feeGrowthOutside1X128: BigNumber;
+    };
+
+    const tickLower = normalizeTick(position.tickLower);
+    const tickUpper = normalizeTick(position.tickUpper);
+
+    const [feeGrowthGlobal0X128Raw, feeGrowthGlobal1X128Raw, slot0Raw, lowerTickDataRaw, upperTickDataRaw] =
+      await Promise.all([
+        withRetries(() => poolContract.feeGrowthGlobal0X128()),
+        withRetries(() => poolContract.feeGrowthGlobal1X128()),
+        withRetries(() => poolContract.slot0()),
+        withRetries(() => poolContract.ticks(tickLower)),
+        withRetries(() => poolContract.ticks(tickUpper)),
+      ]);
+
+    const feeGrowthGlobal0X128 = feeGrowthGlobal0X128Raw as BigNumber;
+    const feeGrowthGlobal1X128 = feeGrowthGlobal1X128Raw as BigNumber;
+    const slot0 = slot0Raw as Slot0Result;
+    const lowerTickData = lowerTickDataRaw as TickInfoResult;
+    const upperTickData = upperTickDataRaw as TickInfoResult;
+
+    const currentTickRaw = slot0.tick ?? slot0[1];
+    const currentTick = normalizeTick(currentTickRaw);
+
+    const safeSub = (a: BigNumber, b: BigNumber): BigNumber => (a.gte(b) ? a.sub(b) : BigNumber.from(0));
+    const feeGrowthInside = (
+      global: BigNumber,
+      lowerOutside: BigNumber,
+      upperOutside: BigNumber,
+      current: number,
+      lower: number,
+      upper: number,
+    ): BigNumber => {
+      const feeBelow = current >= lower ? lowerOutside : safeSub(global, lowerOutside);
+      const feeAbove = current < upper ? upperOutside : safeSub(global, upperOutside);
+      return safeSub(global, feeBelow.add(feeAbove));
+    };
+
+    const feeGrowthInside0X128 = feeGrowthInside(
+      feeGrowthGlobal0X128,
+      lowerTickData.feeGrowthOutside0X128,
+      upperTickData.feeGrowthOutside0X128,
+      currentTick,
+      tickLower,
+      tickUpper,
+    );
+    const feeGrowthInside1X128 = feeGrowthInside(
+      feeGrowthGlobal1X128,
+      lowerTickData.feeGrowthOutside1X128,
+      upperTickData.feeGrowthOutside1X128,
+      currentTick,
+      tickLower,
+      tickUpper,
+    );
+
+    const lastFeeGrowthInside0X128 = position.feeGrowthInside0LastX128;
+    const lastFeeGrowthInside1X128 = position.feeGrowthInside1LastX128;
+    const deltaFeeGrowth0 = feeGrowthInside0X128.gte(lastFeeGrowthInside0X128)
+      ? feeGrowthInside0X128.sub(lastFeeGrowthInside0X128)
+      : BigNumber.from(0);
+    const deltaFeeGrowth1 = feeGrowthInside1X128.gte(lastFeeGrowthInside1X128)
+      ? feeGrowthInside1X128.sub(lastFeeGrowthInside1X128)
+      : BigNumber.from(0);
+
+    const uncollected0 = currentLiquidity.mul(deltaFeeGrowth0).div(Q128);
+    const uncollected1 = currentLiquidity.mul(deltaFeeGrowth1).div(Q128);
+
+    totalFee0 = feeAmount0Raw.add(uncollected0);
+    totalFee1 = feeAmount1Raw.add(uncollected1);
+  } catch (feeError: any) {
+    const message = feeError?.message ?? String(feeError);
+    logger.warn(
+      `Could not calculate uncollected fees for position ${positionAddress}, using tokensOwed only: ${message}`,
+    );
+  }
 
   // Get the pool
   const pool = await uniswap.getV3Pool(token0, token1, position.fee);
@@ -87,11 +213,11 @@ export async function closePosition(
     throw httpErrors.notFound('Pool not found for position');
   }
 
-  // Create a Position instance to calculate expected amounts
+  // Create a Position instance to calculate expected amounts (liquidity-only, fees handled separately)
   const positionSDK = new Position({
     pool,
-    tickLower: position.tickLower,
-    tickUpper: position.tickUpper,
+    tickLower: normalizeTick(position.tickLower),
+    tickUpper: normalizeTick(position.tickUpper),
     liquidity: currentLiquidity.toString(),
   });
 
@@ -104,14 +230,18 @@ export async function closePosition(
   const amount0Min = amount0.multiply(new Percent(1).subtract(slippageTolerance)).quotient;
   const amount1Min = amount1.multiply(new Percent(1).subtract(slippageTolerance)).quotient;
 
-  // Add any fees that have been collected to the expected amounts
+  // Collect options expect only the already-owed amounts (fees); SDK adds amount{0,1}Min internally.
+  const feeCurrencyOwed0 = CurrencyAmount.fromRawAmount(token0, JSBI.BigInt(totalFee0.toString()));
+  const feeCurrencyOwed1 = CurrencyAmount.fromRawAmount(token1, JSBI.BigInt(totalFee1.toString()));
+
+  // For reporting, compute expected total collected amounts (liquidity + fees).
   const totalAmount0 = CurrencyAmount.fromRawAmount(
     token0,
-    JSBI.add(amount0.quotient, JSBI.BigInt(feeAmount0.toString())),
+    JSBI.add(amount0.quotient, JSBI.BigInt(totalFee0.toString())),
   );
   const totalAmount1 = CurrencyAmount.fromRawAmount(
     token1,
-    JSBI.add(amount1.quotient, JSBI.BigInt(feeAmount1.toString())),
+    JSBI.add(amount1.quotient, JSBI.BigInt(totalFee1.toString())),
   );
 
   // Create parameters for removing all liquidity
@@ -122,8 +252,8 @@ export async function closePosition(
     deadline: Math.floor(Date.now() / 1000) + 60 * 20, // 20 minutes from now
     burnToken: true, // Burn the position token since we're closing it
     collectOptions: {
-      expectedCurrencyOwed0: totalAmount0,
-      expectedCurrencyOwed1: totalAmount1,
+      expectedCurrencyOwed0: feeCurrencyOwed0,
+      expectedCurrencyOwed1: feeCurrencyOwed1,
       recipient: walletAddress,
     },
   };
@@ -162,9 +292,9 @@ export async function closePosition(
   const token0AmountRemoved = formatTokenAmount(totalAmount0.quotient.toString(), token0.decimals);
   const token1AmountRemoved = formatTokenAmount(totalAmount1.quotient.toString(), token1.decimals);
 
-  // Calculate fee amounts collected
-  const token0FeeAmount = formatTokenAmount(feeAmount0.toString(), token0.decimals);
-  const token1FeeAmount = formatTokenAmount(feeAmount1.toString(), token1.decimals);
+  // Calculate fee amounts collected (includes uncollected fees computed via feeGrowthInside delta)
+  const token0FeeAmount = formatTokenAmount(totalFee0.toString(), token0.decimals);
+  const token1FeeAmount = formatTokenAmount(totalFee1.toString(), token1.decimals);
 
   // Map back to base and quote amounts
   const baseTokenAmountRemoved = isBaseToken0 ? token0AmountRemoved : token1AmountRemoved;
