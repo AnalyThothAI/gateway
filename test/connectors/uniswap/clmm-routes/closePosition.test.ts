@@ -64,12 +64,13 @@ describe('POST /close-position (uniswap/clmm)', () => {
       gasUsed: BigNumber.from(21000),
       effectiveGasPrice: BigNumber.from(1),
     };
-    (Ethereum.getInstance as jest.Mock).mockResolvedValue({
+    const mockEthereum = {
       provider: mockProvider,
       getWallet: jest.fn().mockResolvedValue(mockWallet),
       prepareGasOptions: jest.fn().mockResolvedValue({}),
       handleTransactionExecution: jest.fn().mockResolvedValue(receipt),
-    });
+    };
+    (Ethereum.getInstance as jest.Mock).mockResolvedValue(mockEthereum);
 
     const token0 = new Token(8453, '0x0000000000000000000000000000000000000001', 0, 'BORT', 'BORT');
     const token1 = new Token(8453, '0x0000000000000000000000000000000000000002', 0, 'USDT', 'USDT');
@@ -139,5 +140,9 @@ describe('POST /close-position (uniswap/clmm)', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body?.data?.baseFeeAmountCollected).toBeGreaterThan(0);
+
+    // Regression: some Uniswap V3 positions (e.g., on Base) can require >400k gas to close.
+    // Keep this high enough to avoid systematic tx reverts due to insufficient gas.
+    expect(mockEthereum.prepareGasOptions).toHaveBeenCalledWith(undefined, 600000);
   });
 });

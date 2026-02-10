@@ -2,5 +2,9 @@
 /certs
 /conf
 /logs
+/node_modules
+/dist
+/coverage
+.pnpm-store
 /gateway.level
 /transactions.level

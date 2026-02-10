@@ -19,8 +19,10 @@ import { Uniswap } from '../uniswap';
 import { POSITION_MANAGER_ABI, getUniswapV3FactoryAddress, getUniswapV3NftManagerAddress } from '../uniswap.contracts';
 import { formatTokenAmount } from '../uniswap.utils';
 
-// Default gas limit for CLMM close position operations
-const CLMM_CLOSE_POSITION_GAS_LIMIT = 400000;
+// Default gas limit for CLMM close position operations.
+// Some EVM networks/tokens can exceed 400k (e.g., a Uniswap V3 close via multicall on Base),
+// so keep a safer ceiling to avoid systematic reverts from insufficient gas.
+const CLMM_CLOSE_POSITION_GAS_LIMIT = 600000;
 
 export async function closePosition(
   network: string,
