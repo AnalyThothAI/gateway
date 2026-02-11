@@ -328,6 +328,13 @@ export const MeteoraClmmClosePositionRequest = Type.Object({
       examples: [solanaChainConfig.defaultWallet],
     }),
   ),
+  awaitConfirmation: Type.Optional(
+    Type.Boolean({
+      description:
+        'When false, Gateway only broadcasts the transaction and returns the signature immediately. The client must poll /chains/solana/poll for confirmation.',
+      default: true,
+    }),
+  ),
   positionAddress: Type.String({
     description: 'Position NFT address',
     examples: ['<sample-position-address>'],

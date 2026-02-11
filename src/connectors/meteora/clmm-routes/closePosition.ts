@@ -19,6 +19,7 @@ export async function closePosition(
   network: string,
   walletAddress: string,
   positionAddress: string,
+  awaitConfirmation: boolean = true,
 ): Promise<ClosePositionResponseType> {
   try {
     const solana = await Solana.getInstance(network);
@@ -70,6 +71,26 @@ export async function closePosition(
 
     // Handle both single transaction and array of transactions
     const transactions = Array.isArray(removeLiquidityTxs) ? removeLiquidityTxs : [removeLiquidityTxs];
+
+    // Async mode: return signature immediately and let caller poll for confirmation.
+    if (!awaitConfirmation) {
+      if (transactions.length !== 1) {
+        throw httpErrors.badRequest(
+          'Async close-position is not supported when closing requires multiple transactions. Retry with awaitConfirmation=true.',
+        );
+      }
+
+      const tx = transactions[0];
+      tx.feePayer = wallet.publicKey;
+      await solana.simulateWithErrorHandling(tx);
+      logger.info('Transaction simulated successfully, sending to network (no confirmation wait)...');
+
+      const { signature } = await solana.sendTransaction(tx, [wallet]);
+      return {
+        signature,
+        status: 0, // PENDING
+      };
+    }
 
     let totalFee = 0;
     let lastTxFee = 0;
@@ -126,16 +147,10 @@ export async function closePosition(
       let baseTokenAmountRemoved = Math.max(0, totalTokenXReceived - baseFeeAmount);
       let quoteTokenAmountRemoved = Math.max(0, totalTokenYReceived - quoteFeeAmount);
       if (isBaseSol) {
-        baseTokenAmountRemoved = Math.max(
-          0,
-          totalTokenXReceived - baseFeeAmount - positionRentRefunded + txFeeSol,
-        );
+        baseTokenAmountRemoved = Math.max(0, totalTokenXReceived - baseFeeAmount - positionRentRefunded + txFeeSol);
       }
       if (isQuoteSol) {
-        quoteTokenAmountRemoved = Math.max(
-          0,
-          totalTokenYReceived - quoteFeeAmount - positionRentRefunded + txFeeSol,
-        );
+        quoteTokenAmountRemoved = Math.max(0, totalTokenYReceived - quoteFeeAmount - positionRentRefunded + txFeeSol);
       }
 
       logger.info(
@@ -194,10 +209,10 @@ export const closePositionRoute: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       try {
-        const { network, walletAddress, positionAddress } = request.body;
+        const { network, walletAddress, positionAddress, awaitConfirmation } = request.body;
         const networkToUse = network;
 
-        return await closePosition(networkToUse, walletAddress, positionAddress);
+        return await closePosition(networkToUse, walletAddress, positionAddress, awaitConfirmation ?? true);
       } catch (e) {
         logger.error('Close position route error:', {
           message: e.message || 'Unknown error',

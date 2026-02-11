@@ -597,9 +597,8 @@ export class Solana {
 
     // Try Meteora
     try {
-      const { getPositionsOwned: getMeteoraPositions } = await import(
-        '../../connectors/meteora/clmm-routes/positionsOwned'
-      );
+      const { getPositionsOwned: getMeteoraPositions } =
+        await import('../../connectors/meteora/clmm-routes/positionsOwned');
       // Create a minimal fastify-like object for validation
       const mockFastify = { httpErrors: { badRequest: (msg: string) => new Error(msg) } };
       const meteoraPositions = await getMeteoraPositions(mockFastify as any, this.network, walletAddress);
@@ -623,9 +622,8 @@ export class Solana {
 
     // Try Raydium CLMM
     try {
-      const { getPositionsOwned: getRaydiumPositions } = await import(
-        '../../connectors/raydium/clmm-routes/positionsOwned'
-      );
+      const { getPositionsOwned: getRaydiumPositions } =
+        await import('../../connectors/raydium/clmm-routes/positionsOwned');
       const mockFastify = { httpErrors: { badRequest: (msg: string) => new Error(msg) } };
       const raydiumPositions = await getRaydiumPositions(mockFastify as any, this.network, walletAddress);
 
@@ -648,9 +646,8 @@ export class Solana {
 
     // Try PancakeSwap
     try {
-      const { getPositionsOwned: getPancakeswapPositions } = await import(
-        '../../connectors/pancakeswap-sol/clmm-routes/positionsOwned'
-      );
+      const { getPositionsOwned: getPancakeswapPositions } =
+        await import('../../connectors/pancakeswap-sol/clmm-routes/positionsOwned');
       const mockFastify = { httpErrors: { badRequest: (msg: string) => new Error(msg) } };
       const pancakeswapPositions = await getPancakeswapPositions(mockFastify as any, this.network, walletAddress);
 
@@ -1315,6 +1312,68 @@ export class Solana {
     }
 
     throw new Error(`Transaction failed to confirm after ${this.config.confirmRetryCount} attempts`);
+  }
+
+  /**
+   * Sends a transaction to the network and returns the signature immediately.
+   * The caller is responsible for polling confirmation (e.g. via /chains/solana/poll).
+   */
+  public async sendTransaction(
+    tx: Transaction | VersionedTransaction,
+    signers: Signer[] = [],
+    priorityFeePerCU?: number,
+  ): Promise<{ signature: string }> {
+    const currentPriorityFee = priorityFeePerCU ?? (await this.estimateGasPrice());
+
+    // Always simulate transaction to get actual compute units
+    let computeUnitsToUse: number;
+    try {
+      let simulationResult;
+
+      if (tx instanceof Transaction) {
+        const result = await this.connection.simulateTransaction(tx);
+        simulationResult = result.value;
+      } else {
+        const result = await this.connection.simulateTransaction(tx, {
+          replaceRecentBlockhash: true,
+          sigVerify: false,
+        });
+        simulationResult = result.value;
+      }
+
+      if (simulationResult.unitsConsumed) {
+        computeUnitsToUse = Math.ceil(simulationResult.unitsConsumed * 1.1);
+        logger.info(
+          `Simulation consumed ${simulationResult.unitsConsumed} units, using ${computeUnitsToUse} with 10% margin`,
+        );
+      } else {
+        computeUnitsToUse = this.config.defaultComputeUnits;
+        logger.warn('Simulation did not return units consumed, using default');
+      }
+    } catch (error) {
+      logger.warn(`Failed to simulate for compute units: ${error.message}, using default`);
+      computeUnitsToUse = this.config.defaultComputeUnits;
+    }
+
+    const basePriorityFeeLamports = currentPriorityFee * computeUnitsToUse;
+    logger.info(
+      `Sending transaction (no-wait) with ${currentPriorityFee} lamports/CU priority fee and total priority fee of ${(basePriorityFeeLamports * LAMPORT_TO_SOL).toFixed(6)} SOL`,
+    );
+
+    // Prepare transaction with compute budget + fresh blockhash.
+    if (tx instanceof Transaction) {
+      tx = await this.prepareTx(tx, currentPriorityFee, computeUnitsToUse, signers);
+    } else {
+      tx = await this.prepareVersionedTx(tx, currentPriorityFee, computeUnitsToUse, signers);
+    }
+
+    const serializedTx = tx.serialize();
+    logger.info('Sending transaction via sendRawTransaction (no confirmation wait)');
+    const signature = await this.connection.sendRawTransaction(serializedTx, {
+      skipPreflight: true,
+      maxRetries: 0,
+    });
+    return { signature };
   }
 
   private async prepareTx(
